@@ -11,13 +11,17 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Martin Karpisek <martin.karpisek@gmail.com> - Bug 526283
+ *     Daniel Kruegler - #2031 - PDE should not warn if resource URI of unknown scheme cannot be found
  *******************************************************************************/
 package org.eclipse.pde.internal.core.builders;
 
 import java.io.File;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.regex.Pattern;
@@ -74,6 +78,8 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 public class ExtensionsErrorReporter extends ManifestErrorReporter {
+
+	private static final List<String> KNOWN_URI_SCHEMES = List.of("platform", "file", "jar"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
 	/**
 	 * PDE model object for the project. May be <code>null</code> if there is no backing model.
@@ -597,6 +603,42 @@ public class ExtensionsErrorReporter extends ManifestErrorReporter {
 			}
 		}
 
+		if (bundleJar == null && isValidUriOfUnknownProtocol(location)) {
+			return true;
+		}
+
+		return false;
+	}
+
+	private static boolean isValidUriOfUnknownProtocol(String location) {
+		try {
+			final var uri = new URI(location);
+			if (uri.isAbsolute()) {
+				final var scheme = uri.getScheme();
+				boolean isKnownProtocol = false;
+				// Exclude those URI forms where we have already special
+				// handling for or where we are sure that they are known URLs:
+				for (String knownScheme : KNOWN_URI_SCHEMES) {
+					if (knownScheme.equalsIgnoreCase(scheme)) {
+						isKnownProtocol = true;
+						break;
+					}
+				}
+
+				if (!isKnownProtocol) {
+					// Exclude syntactically valid file paths that are also
+					// syntactically valid URIs, such as "C:/path" where
+					// "C" would be interpreted as unknown URI scheme:
+					try {
+						java.nio.file.Path.of(location);
+					} catch (java.nio.file.InvalidPathException e) {
+						return true;
+					}
+				}
+			}
+		} catch (URISyntaxException e) {
+			// URI is invalid
+		}
 		return false;
 	}
 
